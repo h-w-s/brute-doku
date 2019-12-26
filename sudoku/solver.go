@@ -2,7 +2,9 @@ package sudoku
 
 import (
 	"errors"
+	"fmt"
 	"log"
+	"sync"
 )
 
 // Row slice of ints
@@ -16,6 +18,12 @@ type cell struct {
 	rowIdx      int
 	colIdx      int
 	eligibleNos []int
+}
+
+type statusChannel struct {
+	interimSolution Sudoku
+	solved          bool
+	err             error
 }
 
 func isComplete(r []int) bool {
@@ -234,13 +242,71 @@ func (s Sudoku) Solve() (Sudoku, bool, int, error) {
 		}
 
 		currentUnfilled := toSolve.countUnfilledCells()
-		log.Println("Unfilled count ----->", currentUnfilled)
+		fmt.Println("Unfilled count ----->", currentUnfilled)
 		if currentUnfilled >= unfilledCount {
 			// naive approach has reached a dead end, use brute force
-			log.Println("Brute forcing..")
+			var cellWithLeastOptions cell
+			maxOptions := 9
+			fmt.Println("start brute force")
+			for rowIdx, row := range toSolve {
+				for colIdx, col := range row {
+					if col == 0 {
+						eligibleNumbers := toSolve.mapEligibleNumbers(rowIdx, colIdx)
+						candidateCount := len(eligibleNumbers)
+						if candidateCount > 0 {
+							if candidateCount <= maxOptions {
+								cellWithLeastOptions = cell{rowIdx, colIdx, eligibleNumbers}
+								maxOptions = candidateCount
+							}
+						}
+					}
+				}
+			}
+
+			// for handling concurrent brute forcing
+			solvedStatusChannel := make(chan statusChannel)
+			wg := new(sync.WaitGroup)
+			fmt.Println("Eligible options", cellWithLeastOptions.eligibleNos)
+			for _, number := range cellWithLeastOptions.eligibleNos {
+				fmt.Printf("Testing %d at %d,%d\n", number, cellWithLeastOptions.rowIdx, cellWithLeastOptions.colIdx)
+				wg.Add(1)
+
+				go func(inSudoku Sudoku, rowIdx int, colIdx int, toFill int, wg *sync.WaitGroup, c *chan statusChannel) {
+					defer wg.Done()
+					outSudoku := inSudoku.copy()
+					outSudoku.fill(rowIdx, colIdx, toFill)
+					interimSudoku, solved, _, err := outSudoku.Solve()
+					*c <- statusChannel{interimSudoku, solved, err}
+				}(toSolve, cellWithLeastOptions.rowIdx, cellWithLeastOptions.colIdx, number, wg, &solvedStatusChannel)
+			}
+
+			// wait for all go routines to execute
+			go func(wg *sync.WaitGroup, c chan statusChannel) {
+				wg.Wait()
+				close(c)
+			}(wg, solvedStatusChannel)
+
+			// check all interim solutions to check if filled
+			for interim := range solvedStatusChannel {
+				sudoku := interim.interimSolution
+				solved := interim.solved
+				err := interim.err
+
+				if err != nil {
+					log.Fatal("channel error", err.Error())
+				}
+
+				if solved {
+					log.Println("Solved")
+					return sudoku, solved, iterations, nil
+				} else {
+					// not solved, but the guess is correct. try from beginning
+					toSolve = sudoku.copy()
+					break
+				}
+			}
 		}
 
 	}
-
 	return toSolve, toSolve.solved(), iterations, nil
 }
