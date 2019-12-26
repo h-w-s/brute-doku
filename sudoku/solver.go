@@ -38,8 +38,9 @@ func isComplete(r []int) bool {
 			completionMap[el] = 1
 		}
 	}
-	for _, val := range completionMap {
-		if !(val != 1) {
+	sequence := []int{1, 2, 3, 4, 5, 6, 7, 8, 9}
+	for _, i := range sequence {
+		if completionMap[i] != 1 {
 			return false
 		}
 	}
@@ -137,7 +138,7 @@ func (s Sudoku) getNumbersFilledInTile(rowIdx int, colIdx int) []int {
 	}
 
 	for i := startRow; i <= endRow; i++ {
-		for j := startCol; i <= endCol; i++ {
+		for j := startCol; j <= endCol; j++ {
 			if s[i][j] != 0 {
 				filled = append(filled, s[i][j])
 			}
