@@ -18,6 +18,26 @@ type cell struct {
 	eligibleNos []int
 }
 
+func isComplete(r []int) bool {
+	completionMap := make(map[int]int)
+	if len(r) < 9 {
+		return false
+	}
+	for _, el := range r {
+		if _, found := completionMap[el]; found {
+			completionMap[el]++
+		} else {
+			completionMap[el] = 1
+		}
+	}
+	for _, val := range completionMap {
+		if !(val != 1) {
+			return false
+		}
+	}
+	return true
+}
+
 func (em elibilityMap) init() {
 	for i := 1; i <= 9; i++ {
 		em[i] = true
@@ -35,11 +55,19 @@ func (em elibilityMap) list() []int {
 }
 
 func (s Sudoku) copy() Sudoku {
-	var copied Sudoku
-	for i, row := range s {
-		rowCopy := row
-		copied[i] = rowCopy
-	}
+	copied := make(Sudoku, 0)
+	done := make(chan int)
+	go func() {
+		for _, _Row := range s {
+			myRow := make(Row, 0)
+			for _, _col := range _Row {
+				myRow = append(myRow, _col)
+			}
+			copied = append(copied, myRow)
+		}
+		done <- 0
+	}()
+	<-done
 	return copied
 }
 func (s Sudoku) countUnfilledCells() int {
@@ -111,8 +139,25 @@ func (s Sudoku) getNumbersFilledInTile(rowIdx int, colIdx int) []int {
 }
 
 func (s Sudoku) solved() bool {
-
-	return false
+	// check if rows are complete
+	for rowIdx, row := range s {
+		filledInRow := s.getNumbersFilledInRow(rowIdx)
+		if !isComplete(filledInRow) {
+			return false
+		}
+		for i := 0; i < len(row); i++ {
+			colIdx := i
+			filledInColumn := s.getNumbersFilledInColumn(colIdx)
+			if !isComplete(filledInColumn) {
+				return false
+			}
+			filledInTile := s.getNumbersFilledInTile(rowIdx, colIdx)
+			if !isComplete(filledInTile) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (s Sudoku) mapEligibleNumbers(rowIdx int, colIdx int) []int {
@@ -122,7 +167,7 @@ func (s Sudoku) mapEligibleNumbers(rowIdx int, colIdx int) []int {
 	negativeList := append(filledInRow, filledInColumn...)
 	negativeList = append(negativeList, filledInTile...)
 
-	var em elibilityMap
+	em := make(elibilityMap)
 	em.init()
 	// eliminate numbers in present in the negative list
 	for _, number := range negativeList {
@@ -159,12 +204,12 @@ func (s Sudoku) fillElibileNumber(c cell) (int, error) {
 }
 
 // Solve fills the sudoku first by naive approach then by brute forcing
-func Solve(sudokuIn Sudoku) (Sudoku, bool, int, error) {
-	toSolve := sudokuIn.copy()
-	solved := false
-	unfilledCount := toSolve.countUnfilledCells()
+func (s Sudoku) Solve() (Sudoku, bool, int, error) {
+	toSolve := s.copy()
+	solved := toSolve.solved()
 	iterations := 0
 	for !solved {
+		unfilledCount := toSolve.countUnfilledCells()
 		iterations++
 		// fill all cells wil single options
 		for rowIdx, row := range toSolve {
@@ -174,7 +219,7 @@ func Solve(sudokuIn Sudoku) (Sudoku, bool, int, error) {
 					c := cell{rowIdx, colIdx, numbers}
 					filled, err := toSolve.fillElibileNumber(c)
 					if filled > 0 {
-						log.Printf("%d,%d : %d \n", rowIdx, colIdx, filled)
+						// log.Printf("Filled %d,%d : %d \n", rowIdx, colIdx, filled)
 					}
 					if err != nil {
 						log.Fatal("Fill error", err)
@@ -188,11 +233,14 @@ func Solve(sudokuIn Sudoku) (Sudoku, bool, int, error) {
 			break
 		}
 
-		if toSolve.countUnfilledCells() >= unfilledCount {
+		currentUnfilled := toSolve.countUnfilledCells()
+		log.Println("Unfilled count ----->", currentUnfilled)
+		if currentUnfilled >= unfilledCount {
 			// naive approach has reached a dead end, use brute force
+			log.Println("Brute forcing..")
 		}
 
 	}
 
-	return toSolve, solved, iterations, nil
+	return toSolve, toSolve.solved(), iterations, nil
 }
